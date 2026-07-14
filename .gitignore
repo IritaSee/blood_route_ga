@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+results/
+*.db
+.DS_Store
+
+# Source data contains real donor records (blood type, screening results incl.
+# HIV/HCV/HBsAg/Syphilis status) - never commit it. Keep local copies only.
+data/*.xlsx
