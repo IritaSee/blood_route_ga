@@ -113,6 +113,57 @@ Writes to `results/live/` in the same shape as `run_historical.py`. Every route
 matrix is built with `departure_time=now`, so re-running later in the day can
 produce a different optimal route as traffic changes - that's the point.
 
+### 3. Evaluate historical vs live results
+
+To compare both scenarios fairly, run them with the same GA settings:
+
+```bash
+python run_historical.py --population 200 --generations 500 --output-dir results/historical_eval
+python run_live.py --population 200 --generations 500 --output-dir results/live_eval
+```
+
+Each folder will contain:
+
+- `ga_results.json` - core GA output (distance, total time, makespan, total cost)
+- `comparison.json` - GA vs historical baseline percentage reductions
+- `comparison_report.txt` - human-readable summary report
+
+Quick side-by-side metric check:
+
+```bash
+python - <<'PY'
+import json
+from pathlib import Path
+
+hist = json.loads(Path('results/historical_eval/ga_results.json').read_text())
+live = json.loads(Path('results/live_eval/ga_results.json').read_text())
+
+metrics = [
+  ('total_distance_km', 'Total Distance (km)'),
+  ('total_time_hours', 'Total Time (h)'),
+  ('makespan_hours', 'Makespan (h)'),
+  ('total_cost_idr', 'Total Cost (IDR)'),
+]
+
+print('\nGA RESULT COMPARISON (Historical vs Live)')
+print('-' * 72)
+print(f"{'Metric':<22} {'Historical':>18} {'Live':>18} {'Delta (Live-Hist)':>14}")
+print('-' * 72)
+for key, label in metrics:
+  h = float(hist.get(key, 0))
+  l = float(live.get(key, 0))
+  d = l - h
+  print(f"{label:<22} {h:>18,.2f} {l:>18,.2f} {d:>14,.2f}")
+print('-' * 72)
+PY
+```
+
+Interpretation tips:
+
+- If live traffic is heavier, `total_time_hours` and `makespan_hours` in live mode usually increase.
+- If live mode reroutes around congestion, `total_distance_km` can increase while time decreases (detour effect).
+- Use `comparison_report.txt` in each folder to see GA improvements against historical baseline, then compare those improvement rates between historical and live runs.
+
 ## Two GA versions
 
 Both live side by side and share the exact same constructor/`run()`/
