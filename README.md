@@ -44,6 +44,48 @@ these are gitignored on purpose, they contain real donor records).
 For live traffic, copy `.env.example` to `.env` and set `GOOGLE_MAPS_API_KEY`
 (needs the Distance Matrix API enabled in Google Cloud Console).
 
+## Google Maps API tutorial (for `run_live.py`)
+
+If this is your first time with Google Cloud, follow this once:
+
+1. Open Google Cloud Console: https://console.cloud.google.com/
+2. Create a project (or pick an existing one).
+3. Enable billing for that project (required for Google Maps Platform APIs).
+4. Go to **APIs & Services -> Library**.
+5. Search and enable **Distance Matrix API**.
+6. Open **APIs & Services -> Credentials**.
+7. Click **Create credentials -> API key**.
+8. Copy the generated key.
+
+Recommended security hardening:
+
+1. In the key settings, set **Application restrictions**:
+  - For local/dev scripts, use **IP addresses** and whitelist your server IP(s), or
+  - Use **None** only temporarily during setup/testing.
+2. Set **API restrictions** to only **Distance Matrix API**.
+3. Save changes.
+
+Then configure this project:
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` and set:
+
+```env
+GOOGLE_MAPS_API_KEY=your_real_api_key_here
+```
+
+Quick validation run:
+
+```bash
+python run_live.py --population 20 --generations 30
+```
+
+If the API key is invalid/misconfigured, Google typically returns `REQUEST_DENIED`
+or an error about billing/API restrictions.
+
 ## Usage
 
 ### 1. GA from historical routes (OSRM)
