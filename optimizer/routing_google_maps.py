@@ -102,7 +102,9 @@ class GoogleMapsRouter:
 
     DISTANCE_MATRIX_URL = "https://maps.googleapis.com/maps/api/distancematrix/json"
     MIN_REQUEST_INTERVAL = 0.1  # Google's quota is generous; light throttling only
-    MAX_ORIGINS_PER_REQUEST = 25   # Distance Matrix API element limits
+    # Per-request element cap (origins x destinations). Keep configurable for quotas.
+    MAX_ELEMENTS_PER_REQUEST = 100
+    MAX_ORIGINS_PER_REQUEST = 25
     MAX_DESTINATIONS_PER_REQUEST = 25
     REQUEST_TIMEOUT = 30
     BACKOFF_INTERVALS = [1, 2, 4, 8, 16]
@@ -263,8 +265,17 @@ class GoogleMapsRouter:
             origin_indices = fetch_origins[oi_start:oi_end]
             origin_coords = [(locations[i]['lat'], locations[i]['lon']) for i in origin_indices]
 
-            for di_start in range(0, len(fetch_destinations), self.MAX_DESTINATIONS_PER_REQUEST):
-                di_end = min(di_start + self.MAX_DESTINATIONS_PER_REQUEST, len(fetch_destinations))
+            # Respect Google element limits: origins x destinations <= MAX_ELEMENTS_PER_REQUEST.
+            max_destinations_for_block = max(
+                1,
+                min(
+                    self.MAX_DESTINATIONS_PER_REQUEST,
+                    self.MAX_ELEMENTS_PER_REQUEST // max(1, len(origin_indices)),
+                ),
+            )
+
+            for di_start in range(0, len(fetch_destinations), max_destinations_for_block):
+                di_end = min(di_start + max_destinations_for_block, len(fetch_destinations))
                 dest_indices = fetch_destinations[di_start:di_end]
                 dest_coords = [(locations[j]['lat'], locations[j]['lon']) for j in dest_indices]
 
