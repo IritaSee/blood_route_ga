@@ -5,6 +5,7 @@ for GA optimization including facilities, distances, demands, and trip history.
 
 import pandas as pd
 import numpy as np
+import re
 from typing import Dict, List, Tuple, Optional
 from pathlib import Path
 import logging
@@ -19,6 +20,24 @@ class DataExtractor:
         """Initialize data extractor."""
         self.pmi_file = Path(pmi_file)
         self.droping_file = Path(droping_file)
+
+    def _is_non_location_name(self, name: str) -> bool:
+        """Filter summary/number labels that are not physical locations."""
+        n = str(name).strip()
+        if not n:
+            return True
+
+        upper = n.upper()
+        if upper in {"JUMLAH", "RATA-RATA"}:
+            return True
+
+        if re.fullmatch(r"\d+(\.\d+)?", n):
+            return True
+
+        if re.match(r"^[A-Z]\.\s", n):
+            return True
+
+        return False
         
     def extract_facilities(self) -> pd.DataFrame:
         """
@@ -158,6 +177,9 @@ class DataExtractor:
                 if (pd.isna(hospital_name) or str(hospital_name).strip() == '' or 
                     'Wilayah' in str(hospital_name)):
                     continue
+
+                if self._is_non_location_name(hospital_name):
+                    continue
                 
                 # Extract monthly demand values
                 demand_dict = {
@@ -196,6 +218,8 @@ class DataExtractor:
         
         for _, row in facilities.iterrows():
             name = row['name']
+            if self._is_non_location_name(name):
+                continue
             if name not in seen_names:
                 all_locs.append({
                     'name': name,
@@ -206,6 +230,8 @@ class DataExtractor:
         
         for _, row in demands.iterrows():
             name = row['name']
+            if self._is_non_location_name(name):
+                continue
             if name not in seen_names:
                 all_locs.append({
                     'name': name,

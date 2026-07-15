@@ -44,6 +44,37 @@ these are gitignored on purpose, they contain real donor records).
 For live traffic, copy `.env.example` to `.env` and set `GOOGLE_MAPS_API_KEY`
 (needs the Distance Matrix API enabled in Google Cloud Console).
 
+## Manual coordinate override (recommended for unstable geocoding)
+
+If geocoding coverage is incomplete, you can provide fixed coordinates from a
+CSV and force the pipeline to use them first.
+
+Supported override files (first one found is used):
+
+- `data/geocode_overrides.csv`
+- `data/geocode_gap_report.csv`
+- `data/geocode_gap_report (1).csv`
+
+You can also set a specific file explicitly:
+
+```bash
+GEOCODE_OVERRIDE_FILE="data/geocode_overrides.csv" python run_historical.py --population 200 --generations 500 --output-dir results/historical_eval
+GEOCODE_OVERRIDE_FILE="data/geocode_overrides.csv" python run_live.py --population 200 --generations 500 --output-dir results/live_eval
+```
+
+Override CSV columns used by the loader:
+
+- `name`
+- `location_district` (optional but recommended)
+- `lat`
+- `lon`
+
+Notes:
+
+- Manual CSV overrides are checked before online geocoding.
+- Non-location rows such as numeric labels, `JUMLAH`, and `RATA-RATA` are now
+  filtered out during location extraction so they do not enter GA.
+
 ## Google Maps API tutorial (for `run_live.py`)
 
 If this is your first time with Google Cloud, follow this once:
