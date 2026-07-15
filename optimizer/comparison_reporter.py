@@ -5,7 +5,7 @@ Generate comparison reports between baseline and GA results.
 import json
 import logging
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ class ComparisonReporter:
         self.output_dir.mkdir(exist_ok=True)
     
     def generate_text_report(self, baseline: Dict, ga_results: Dict,
-                            comparison: Dict, 
+                            comparison: Optional[Dict] = None,
                             output_file: str = "comparison_report.txt") -> str:
         """Generate detailed text comparison report."""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -45,53 +45,75 @@ class ComparisonReporter:
                 f"Average Duration per Trip: "
                 f"{baseline.get('avg_duration_hours', 0):.2f} hours"
             )
-        
-        report_lines.extend([
-            f"\nOn-Time Delivery Rate: {baseline.get('on_time_percentage', 0):.1f}%",
-            f"  - On-time trips: {baseline.get('on_time_count', 0)}",
-            f"  - Late trips: {baseline.get('late_count', 0)}",
-            f"Average Lateness (late trips): {baseline.get('avg_lateness_minutes', 0):.1f} minutes",
+        if comparison is not None:
+            report_lines.extend([
+                f"\nOn-Time Delivery Rate: {baseline.get('on_time_percentage', 0):.1f}%",
+                f"  - On-time trips: {baseline.get('on_time_count', 0)}",
+                f"  - Late trips: {baseline.get('late_count', 0)}",
+                f"Average Lateness (late trips): {baseline.get('avg_lateness_minutes', 0):.1f} minutes",
             
-            f"\nCost Analysis:",
-            f"  - Cost per km: IDR {baseline.get('cost_per_km_idr', 0):,.0f}",
-            f"  - Average cost per trip: IDR {baseline.get('avg_cost_per_trip_idr', 0):,.0f}",
-            f"  - Total historical cost: IDR {baseline.get('total_cost_idr', 0):,.0f}",
+                f"\nCost Analysis:",
+                f"  - Cost per km: IDR {baseline.get('cost_per_km_idr', 0):,.0f}",
+                f"  - Average cost per trip: IDR {baseline.get('avg_cost_per_trip_idr', 0):,.0f}",
+                f"  - Total historical cost: IDR {baseline.get('total_cost_idr', 0):,.0f}",
+                
+                "\n\nGENETIC ALGORITHM RESULTS",
+                "-" * 80,
+                f"Number of Routes: {ga_results.get('num_routes', 0)}",
+                f"Makespan (longest route): {ga_results.get('makespan_hours', 0):.2f} hours",
+                f"Total Time (all routes): {ga_results.get('total_time_hours', 0):.2f} hours",
+                f"Total Distance: {ga_results.get('total_distance_km', 0):.2f} km",
+                f"Total Cost: IDR {ga_results.get('total_cost_idr', 0):,.0f}",
+                
+                "\n\nIMPROVEMENT METRICS",
+                "-" * 80,
+                f"Distance Reduction:",
+                f"  - Absolute: {comparison.get('distance_reduction_km', 0):.2f} km",
+                f"  - Percentage: {comparison.get('distance_reduction_pct', 0):.1f}%",
+                
+                f"Cost Reduction:",
+                f"  - Absolute: IDR {comparison.get('cost_reduction_idr', 0):,.0f}",
+                f"  - Percentage: {comparison.get('cost_reduction_pct', 0):.1f}%",
+                
+                "\n\nKEY INSIGHTS",
+                "-" * 80,
+                f"1. Historical on-time rate: {baseline.get('on_time_percentage', 0):.1f}%",
+                f"2. GA produces {ga_results.get('num_routes', 0)} optimized routes",
+                f"3. Expected distance reduction: {comparison.get('distance_reduction_pct', 0):.1f}%",
+                f"4. Estimated cost savings: IDR {comparison.get('cost_reduction_idr', 0):,.0f}",
+                
+                "\n\nRECOMMENDATIONS",
+                "-" * 80,
+                "1. Implement optimized GA routes to reduce delivery distance",
+                "2. Monitor actual delivery times to validate GA predictions",
+                "3. Use baseline lateness as improvement target",
+                "4. Cost savings can fund vehicle maintenance/fuel reserves",
+                "5. Consider Deep Learning model to predict delays proactively",
+                "",
+                "=" * 80,
+            ])
+        else:
+            report_lines.extend([
+                f"\nOn-Time Delivery Rate: {baseline.get('on_time_percentage', 0):.1f}%",
+                f"  - On-time trips: {baseline.get('on_time_count', 0)}",
+                f"  - Late trips: {baseline.get('late_count', 0)}",
+                f"Average Lateness (late trips): {baseline.get('avg_lateness_minutes', 0):.1f} minutes",
             
-            "\n\nGENETIC ALGORITHM RESULTS",
-            "-" * 80,
-            f"Number of Routes: {ga_results.get('num_routes', 0)}",
-            f"Makespan (longest route): {ga_results.get('makespan_hours', 0):.2f} hours",
-            f"Total Time (all routes): {ga_results.get('total_time_hours', 0):.2f} hours",
-            f"Total Distance: {ga_results.get('total_distance_km', 0):.2f} km",
-            f"Total Cost: IDR {ga_results.get('total_cost_idr', 0):,.0f}",
-            
-            "\n\nIMPROVEMENT METRICS",
-            "-" * 80,
-            f"Distance Reduction:",
-            f"  - Absolute: {comparison.get('distance_reduction_km', 0):.2f} km",
-            f"  - Percentage: {comparison.get('distance_reduction_pct', 0):.1f}%",
-            
-            f"Cost Reduction:",
-            f"  - Absolute: IDR {comparison.get('cost_reduction_idr', 0):,.0f}",
-            f"  - Percentage: {comparison.get('cost_reduction_pct', 0):.1f}%",
-            
-            "\n\nKEY INSIGHTS",
-            "-" * 80,
-            f"1. Historical on-time rate: {baseline.get('on_time_percentage', 0):.1f}%",
-            f"2. GA produces {ga_results.get('num_routes', 0)} optimized routes",
-            f"3. Expected distance reduction: {comparison.get('distance_reduction_pct', 0):.1f}%",
-            f"4. Estimated cost savings: IDR {comparison.get('cost_reduction_idr', 0):,.0f}",
-            
-            "\n\nRECOMMENDATIONS",
-            "-" * 80,
-            "1. Implement optimized GA routes to reduce delivery distance",
-            "2. Monitor actual delivery times to validate GA predictions",
-            "3. Use baseline lateness as improvement target",
-            f"4. Cost savings can fund vehicle maintenance/fuel reserves",
-            "5. Consider Deep Learning model to predict delays proactively",
-            "",
-            "=" * 80,
-        ])
+                f"\nCost Analysis:",
+                f"  - Cost per km: IDR {baseline.get('cost_per_km_idr', 0):,.0f}",
+                f"  - Average cost per trip: IDR {baseline.get('avg_cost_per_trip_idr', 0):,.0f}",
+                f"  - Total historical cost: IDR {baseline.get('total_cost_idr', 0):,.0f}",
+                
+                "\n\nGENETIC ALGORITHM RESULTS",
+                "-" * 80,
+                f"Number of Routes: {ga_results.get('num_routes', 0)}",
+                f"Makespan (longest route): {ga_results.get('makespan_hours', 0):.2f} hours",
+                f"Total Time (all routes): {ga_results.get('total_time_hours', 0):.2f} hours",
+                f"Total Distance: {ga_results.get('total_distance_km', 0):.2f} km",
+                f"Total Cost: IDR {ga_results.get('total_cost_idr', 0):,.0f}",
+                "\n\nNo comparison metrics available (baseline data missing)",
+                "-" * 80,
+            ])
         
         report_text = "\n".join(report_lines)
         
@@ -104,7 +126,7 @@ class ComparisonReporter:
         return report_text
     
     def generate_json_report(self, baseline: Dict, ga_results: Dict,
-                            comparison: Dict,
+                            comparison: Optional[Dict] = None,
                             output_file: str = "comparison.json") -> str:
         """Generate JSON comparison report."""
         report_data = {
@@ -122,8 +144,9 @@ class ComparisonReporter:
         return str(output_path)
     
     def generate_summary_table(self, baseline: Dict, ga_results: Dict,
-                              comparison: Dict) -> str:
+                              comparison: Optional[Dict]) -> str:
         """Generate a summary comparison table."""
+        comparison = comparison or {}
         lines = [
             "\nCOMPARISON TABLE",
             "-" * 100,
@@ -169,8 +192,9 @@ class ComparisonReporter:
         return "\n".join(lines)
     
     def print_report(self, baseline: Dict, ga_results: Dict,
-                    comparison: Dict):
+                    comparison: Optional[Dict]):
         """Print formatted report to console."""
+        comparison = comparison or {}
         print("\n" + "=" * 80)
         print("GENETIC ALGORITHM OPTIMIZATION - BASELINE COMPARISON")
         print("=" * 80)
