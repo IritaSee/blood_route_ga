@@ -206,7 +206,6 @@ class OSRMRouter:
         
         params = {
             'annotations': 'distance,duration',
-            'overview': 'false',
         }
         
         # Retry loop

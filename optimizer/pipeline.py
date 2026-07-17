@@ -17,9 +17,9 @@ import logging
 import json
 from pathlib import Path
 from typing import Dict, List, Optional
-import pandas as pd
 
 from optimizer.data_extractor import DataExtractor
+from optimizer.baseline_extractor import BaselineExtractor
 from optimizer import geocoder as geocoder_module
 from optimizer.comparison_reporter import ComparisonReporter
 
@@ -67,6 +67,7 @@ class OptimizationPipeline:
         self.vehicle_capacity = vehicle_capacity
 
         self.extractor = DataExtractor(pmi_file, droping_file)
+        self.baseline_extractor = BaselineExtractor(droping_file)
         self.geocoder = geocoder_module.Geocoder(cache_file=str(self.output_dir / "geocode_cache.db"))
 
         self.locations: Optional[List[Dict]] = None
@@ -128,45 +129,20 @@ class OptimizationPipeline:
 
         return duration_matrix, distance_matrix
 
-    def extract_baseline(self, trip_data: pd.DataFrame) -> Dict:
-        """Extract baseline metrics from historical trip data, for comparison
-        against the GA result."""
+    def extract_baseline(self) -> Dict:
+        """Extract baseline metrics from historical trip data (All Droping.xlsx,
+        'Keterlambatan & Waktu Trip' sheet), for comparison against the GA result."""
         logger.info("=== STEP 4: Extract Baseline Metrics ===")
 
-        if trip_data.empty:
+        baseline = self.baseline_extractor.get_overall_baseline()
+        if not baseline:
             logger.warning("No trip history data available")
             return {}
-
-        valid_trips = trip_data[trip_data['distance_km'].notna()].copy()
-        if valid_trips.empty:
-            return {}
-
-        baseline = {
-            'num_trips': len(valid_trips),
-            'avg_distance_km': valid_trips['distance_km'].mean(),
-            'avg_duration_hours': None,
-            'avg_cost_idr': None,
-            'on_time_percentage': 0,
-        }
-
-        if 'status' in valid_trips.columns:
-            on_time = (valid_trips['status'].str.lower() == 'tepat waktu').sum()
-            baseline['on_time_percentage'] = (on_time / len(valid_trips)) * 100
-
-        try:
-            valid_trips['trip_duration_hours'] = pd.to_timedelta(
-                valid_trips['trip_duration']
-            ).dt.total_seconds() / 3600
-            baseline['avg_duration_hours'] = valid_trips['trip_duration_hours'].mean()
-        except Exception:
-            pass
-
-        baseline['avg_cost_idr'] = valid_trips['distance_km'].mean() * (12750 / 9)
 
         logger.info("Baseline metrics:")
         logger.info(f"  Trips: {baseline['num_trips']}")
         logger.info(f"  Avg distance: {baseline['avg_distance_km']:.1f} km")
-        logger.info(f"  Avg cost: {baseline['avg_cost_idr']:.0f} IDR")
+        logger.info(f"  Total cost: {baseline['total_cost_idr']:.0f} IDR")
         logger.info(f"  On-time: {baseline['on_time_percentage']:.1f}%")
 
         return baseline
@@ -218,15 +194,59 @@ class OptimizationPipeline:
 
         return self.ga_results
 
+    def _ga_summary(self) -> Dict:
+        """Convert the GA's internal seconds/meters result into the report-facing
+        shape (router_mode, *_hours, *_km) shared by ga_results.json and the
+        comparison report."""
+        return {
+            'router_mode': self.router.get_router_mode(),
+            'makespan_hours': self.ga_results['makespan_s'] / 3600,
+            'total_time_hours': self.ga_results['total_time_s'] / 3600,
+            'total_distance_km': self.ga_results['total_distance_km'],
+            'total_cost_idr': self.ga_results['total_cost_idr'],
+            'vehicle_distances_km': [d / 1000 for d in self.ga_results['vehicle_distances_m']],
+            'vehicle_times_hours': [t / 3600 for t in self.ga_results['vehicle_times_s']],
+            'vehicle_costs_idr': self.ga_results['vehicle_costs_idr'],
+            'num_routes': self.ga_results['num_routes'],
+        }
+
+    def _build_comparison(self, baseline: Dict, ga_summary: Dict) -> Optional[Dict]:
+        """Compare GA totals against a `num_routes`-trip equivalent of the
+        historical per-trip average, for both the text report and comparison.json."""
+        if not baseline or not ga_summary:
+            return None
+
+        num_routes = ga_summary['num_routes']
+        baseline_distance_km = baseline.get('avg_distance_km', 0) * num_routes
+        baseline_cost_idr = baseline.get('avg_cost_per_trip_idr', 0) * num_routes
+        ga_distance_km = ga_summary['total_distance_km']
+        ga_cost_idr = ga_summary['total_cost_idr']
+
+        return {
+            'baseline_distance_km': baseline_distance_km,
+            'ga_distance_km': ga_distance_km,
+            'distance_reduction_km': baseline_distance_km - ga_distance_km,
+            'distance_reduction_pct': (
+                (1 - ga_distance_km / baseline_distance_km) * 100
+            ) if baseline_distance_km else 0,
+            'baseline_cost_idr': baseline_cost_idr,
+            'ga_cost_idr': ga_cost_idr,
+            'cost_reduction_idr': baseline_cost_idr - ga_cost_idr,
+            'cost_reduction_pct': (
+                (1 - ga_cost_idr / baseline_cost_idr) * 100
+            ) if baseline_cost_idr else 0,
+        }
+
     def generate_comparison_report(self, baseline: Dict) -> Optional[str]:
         """Write a GA-vs-historical-baseline comparison report."""
         if not self.ga_results:
             logger.warning("No GA results available for comparison report")
             return None
 
+        ga_summary = self._ga_summary()
+        comparison = self._build_comparison(baseline, ga_summary)
         reporter = ComparisonReporter(output_dir=str(self.output_dir))
-        report_path = reporter.generate_text_report(baseline, self.ga_results)
-        reporter.generate_json_report(baseline, self.ga_results)
+        report_path = reporter.generate_text_report(baseline, ga_summary, comparison)
         return report_path
 
     def save_results(self, baseline: Dict):
@@ -237,41 +257,15 @@ class OptimizationPipeline:
             logger.warning("No GA results to save")
             return
 
+        ga_summary = self._ga_summary()
         results_file = self.output_dir / "ga_results.json"
         with open(results_file, 'w') as f:
-            results_to_save = {
-                'router_mode': self.router.get_router_mode(),
-                'makespan_hours': self.ga_results['makespan_s'] / 3600,
-                'total_time_hours': self.ga_results['total_time_s'] / 3600,
-                'total_distance_km': self.ga_results['total_distance_km'],
-                'total_cost_idr': self.ga_results['total_cost_idr'],
-                'vehicle_distances_km': [d / 1000 for d in self.ga_results['vehicle_distances_m']],
-                'vehicle_times_hours': [t / 3600 for t in self.ga_results['vehicle_times_s']],
-                'vehicle_costs_idr': self.ga_results['vehicle_costs_idr'],
-                'num_routes': self.ga_results['num_routes'],
-            }
-            json.dump(results_to_save, f, indent=2)
+            json.dump(ga_summary, f, indent=2)
 
         logger.info(f"Results saved to {results_file}")
 
-        if baseline:
-            comparison = {
-                'baseline_distance_km': baseline.get('avg_distance_km'),
-                'ga_distance_km': self.ga_results['total_distance_km'],
-                'distance_reduction_pct': (
-                    (1 - self.ga_results['total_distance_km'] /
-                     (baseline.get('avg_distance_km', 1) * self.ga_results['num_routes']))
-                    * 100
-                ) if baseline.get('avg_distance_km') else 0,
-                'baseline_cost_idr': baseline.get('avg_cost_idr'),
-                'ga_cost_idr': self.ga_results['total_cost_idr'],
-                'cost_reduction_pct': (
-                    (1 - self.ga_results['total_cost_idr'] /
-                     (baseline.get('avg_cost_idr', 1) * self.ga_results['num_routes']))
-                    * 100
-                ) if baseline.get('avg_cost_idr') else 0,
-            }
-
+        comparison = self._build_comparison(baseline, ga_summary)
+        if comparison:
             comp_file = self.output_dir / "comparison.json"
             with open(comp_file, 'w') as f:
                 json.dump(comparison, f, indent=2)
@@ -291,7 +285,7 @@ class OptimizationPipeline:
         locations = self.extractor.get_all_locations()
         geocoded = self.geocode_locations(locations)
         duration_matrix, distance_matrix = self.build_matrices()
-        baseline = self.extract_baseline(summary['trip_history'])
+        baseline = self.extract_baseline()
         ga_results = self.optimize(population_size, generations, quantities=quantities)
         comparison_report_path = self.generate_comparison_report(baseline)
         self.save_results(baseline)
