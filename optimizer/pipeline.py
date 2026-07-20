@@ -148,7 +148,7 @@ class OptimizationPipeline:
         return baseline
 
     def optimize(self, population_size: int = 150, generations: int = 800,
-                 quantities=None) -> Dict:
+                 quantities=None, seed: Optional[int] = None) -> Dict:
         """Run GA optimization using whichever GA class was injected."""
         logger.info("=== STEP 5: Genetic Algorithm Optimization ===")
 
@@ -177,6 +177,8 @@ class OptimizationPipeline:
         # does not, so only pass it if supported.
         if quantities is not None and 'quantities' in self.ga_class.__init__.__code__.co_varnames:
             ga_kwargs['quantities'] = quantities
+        if seed is not None and 'seed' in self.ga_class.__init__.__code__.co_varnames:
+            ga_kwargs['seed'] = seed
 
         ga = self.ga_class(**ga_kwargs)
 
@@ -194,6 +196,25 @@ class OptimizationPipeline:
 
         return self.ga_results
 
+    def _route_stops(self) -> List[List[Dict]]:
+        """Resolve the GA's per-vehicle customer-id sequences into depot-to-depot
+        stop lists with names/coordinates, so downstream tools (e.g. route
+        visualization) don't need to re-derive the customer-id -> location mapping.
+        Customer id `c` is `self.locations[c + 1]`; `self.locations[0]` is the depot
+        (see `next_loc = customer_id + 1` in the GA's own distance accumulation)."""
+        depot = self.locations[0]
+
+        def as_stop(loc: Dict) -> Dict:
+            return {'name': loc.get('name'), 'lat': loc.get('lat'), 'lon': loc.get('lon')}
+
+        stops_per_vehicle = []
+        for route in self.ga_results['routes']:
+            stops = [as_stop(depot)]
+            stops.extend(as_stop(self.locations[c + 1]) for c in route)
+            stops.append(as_stop(depot))
+            stops_per_vehicle.append(stops)
+        return stops_per_vehicle
+
     def _ga_summary(self) -> Dict:
         """Convert the GA's internal seconds/meters result into the report-facing
         shape (router_mode, *_hours, *_km) shared by ga_results.json and the
@@ -208,6 +229,7 @@ class OptimizationPipeline:
             'vehicle_times_hours': [t / 3600 for t in self.ga_results['vehicle_times_s']],
             'vehicle_costs_idr': self.ga_results['vehicle_costs_idr'],
             'num_routes': self.ga_results['num_routes'],
+            'stops': self._route_stops(),
         }
 
     def _build_comparison(self, baseline: Dict, ga_summary: Dict) -> Optional[Dict]:
@@ -273,7 +295,7 @@ class OptimizationPipeline:
             logger.info(f"Comparison saved to {comp_file}")
 
     def run_full_pipeline(self, population_size: int = 150, generations: int = 800,
-                           quantities=None) -> Dict:
+                           quantities=None, seed: Optional[int] = None) -> Dict:
         """Execute the full GA-only pipeline: extract -> geocode -> matrices ->
         baseline -> optimize -> compare -> save."""
         logger.info("\n" + "=" * 60)
@@ -286,7 +308,7 @@ class OptimizationPipeline:
         geocoded = self.geocode_locations(locations)
         duration_matrix, distance_matrix = self.build_matrices()
         baseline = self.extract_baseline()
-        ga_results = self.optimize(population_size, generations, quantities=quantities)
+        ga_results = self.optimize(population_size, generations, quantities=quantities, seed=seed)
         comparison_report_path = self.generate_comparison_report(baseline)
         self.save_results(baseline)
 

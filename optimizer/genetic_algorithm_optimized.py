@@ -171,7 +171,8 @@ class GeneticAlgorithm:
                  mutation_rate: float = 0.1,
                  elite_size: int = 15,
                  local_search_rate: float = 0.3,
-                 stagnation_limit: int = 40):
+                 stagnation_limit: int = 40,
+                 seed: Optional[int] = None):
         """
         Args:
             num_customers: Number of delivery locations
@@ -191,7 +192,12 @@ class GeneticAlgorithm:
                 individual every generation is wasteful, so it's sampled)
             stagnation_limit: Generations without improvement before injecting
                 fresh individuals into the population
+            seed: Optional RNG seed for reproducible runs
         """
+        if seed is not None:
+            random.seed(seed)
+            np.random.seed(seed)
+
         self.num_customers = num_customers
         self.num_vehicles = num_vehicles
         self.duration_matrix = duration_matrix

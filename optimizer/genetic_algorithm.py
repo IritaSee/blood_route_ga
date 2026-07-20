@@ -133,10 +133,11 @@ class GeneticAlgorithm:
                  generations: int = 800,
                  crossover_rate: float = 0.8,
                  mutation_rate: float = 0.1,
-                 elite_size: int = 15):
+                 elite_size: int = 15,
+                 seed: Optional[int] = None):
         """
         Initialize GA.
-        
+
         Args:
             num_customers: Number of delivery locations
             num_vehicles: Number of vehicles
@@ -148,7 +149,12 @@ class GeneticAlgorithm:
             crossover_rate: Crossover probability
             mutation_rate: Mutation probability per gene
             elite_size: Number of elite individuals to preserve
+            seed: Optional RNG seed for reproducible runs
         """
+        if seed is not None:
+            random.seed(seed)
+            np.random.seed(seed)
+
         self.num_customers = num_customers
         self.num_vehicles = num_vehicles
         self.duration_matrix = duration_matrix
