@@ -40,6 +40,8 @@ def main():
     parser.add_argument("--cache-ttl", type=int, default=300,
                          help="Seconds to cache a live routing pair before refetching (default: 300)")
     parser.add_argument("--output-dir", default="results/live")
+    parser.add_argument("--seed", type=int, default=None,
+                         help="RNG seed for a reproducible GA run (default: unseeded)")
     args = parser.parse_args()
 
     ga_class = GeneticAlgorithmOptimized if args.ga == "optimized" else GeneticAlgorithmBaseline
@@ -65,6 +67,7 @@ def main():
     pipeline.run_full_pipeline(
         population_size=args.population,
         generations=args.generations,
+        seed=args.seed,
     )
 
 

@@ -26,6 +26,8 @@ def main():
     parser.add_argument("--no-osrm", action="store_true",
                          help="Use haversine distance instead of OSRM (no network needed)")
     parser.add_argument("--output-dir", default="results/historical")
+    parser.add_argument("--seed", type=int, default=None,
+                         help="RNG seed for a reproducible GA run (default: unseeded)")
     args = parser.parse_args()
 
     ga_class = GeneticAlgorithmOptimized if args.ga == "optimized" else GeneticAlgorithmBaseline
@@ -46,6 +48,7 @@ def main():
     pipeline.run_full_pipeline(
         population_size=args.population,
         generations=args.generations,
+        seed=args.seed,
     )
 
 
