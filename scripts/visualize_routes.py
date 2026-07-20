@@ -52,6 +52,25 @@ logger = logging.getLogger(__name__)
 VEHICLE_COLORS = ['#1f77b4', '#ff7f0e', '#2ca02c', '#9467bd', '#8c564b']
 BASELINE_COLOR = '#999999'
 
+# All Droping.xlsx's "Tujuan 1" column spells out facility names in full (e.g.
+# "Bank Darah Rumah Sakit (BDRS) Kanjuruhan"), while data/geocode_overrides.csv
+# uses the abbreviated names the rest of the pipeline geocodes against (e.g.
+# "BDRS Kanjuruhan"). The abbreviation used isn't even consistent between sources
+# (BDRS <-> UTD RS, BDRS <-> BRRS), so this can't be solved by normalization alone
+# - it's a fixed, known set of aliases for the 9 facilities where the two sheets
+# disagree.
+BASELINE_NAME_ALIASES = {
+    'Bank Darah Rumah Sakit (BDRS) Kanjuruhan': 'BDRS Kanjuruhan',
+    'Bank Darah Rumah Sakit (BDRS) UMM': 'BDRS UMM',
+    'Bank Darah Rumah Sakit (BDRS) Saiful Anwar': 'UTD RS Saiful Anwar',
+    'Bank Darah Rumah Sakit (BDRS) Wava Husada': 'BRRS Wava Husada',
+    'Bank Darah Rumah Sakit (BDRS) Karsa Husada': 'BDRS Karsa Husada',
+    'UTD (Unit Transfusi Darah) Kota Kediri': 'UDD PMI Kota Kediri',
+    'UTD (Unit Transfusi Darah) Kota Batu': 'UDD PMI Kota Batu',
+    'UTD (Unit Transfusi Darah) Kab Wonogiri': 'UDD PMI Kabupaten Wonogiri',
+    'UTD (Unit Transfusi Darah) Madiun': 'UDD PMI Kota Madiun',
+}
+
 
 def _normalize(name: str) -> str:
     return re.sub(r"\s+", " ", str(name or "").strip().lower())
@@ -95,7 +114,8 @@ def build_baseline_pairs(overrides: Dict[str, Tuple[float, float]], droping_file
     pairs = []
     unmatched = []
     for name, stats in dest_stats.items():
-        coords = overrides.get(_normalize(name))
+        lookup_name = BASELINE_NAME_ALIASES.get(name, name)
+        coords = overrides.get(_normalize(lookup_name))
         if coords is None:
             unmatched.append(name)
             continue

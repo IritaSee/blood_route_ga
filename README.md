@@ -23,9 +23,12 @@ optimizer/
   genetic_algorithm_optimized.py - reworked GA (see "Two GA versions" below)
   routing_osrm.py              - static historical routing (OSRM / haversine)
   routing_google_maps.py       - live-traffic routing (Google Maps Distance Matrix)
+  route_geometry.py            - road-snapped route geometry for the map (OSRM /route, Google Directions)
   pipeline.py                  - shared orchestration: extract -> geocode -> matrix -> GA -> save
 run_historical.py               - entry point 1 (OSRM)
 run_live.py                     - entry point 2 (Google Maps, live traffic)
+scripts/
+  visualize_routes.py           - render baseline/OSRM-GA/Google-GA routes as an OSM map
 data/                           - put Data PMI.xlsx / All Droping.xlsx here (gitignored)
 tests/                          - GA correctness tests, no network/data required
 ```
@@ -83,7 +86,11 @@ If this is your first time with Google Cloud, follow this once:
 2. Create a project (or pick an existing one).
 3. Enable billing for that project (required for Google Maps Platform APIs).
 4. Go to **APIs & Services -> Library**.
-5. Search and enable **Distance Matrix API**.
+5. Search and enable **Distance Matrix API** (required for `run_live.py` itself).
+   If you also want the Google-GA route drawn with real road geometry in
+   `scripts/visualize_routes.py`, additionally enable **Directions API** - without
+   it, that layer falls back to OSRM road geometry (the route order/colors are
+   unaffected either way).
 6. Open **APIs & Services -> Credentials**.
 7. Click **Create credentials -> API key**.
 8. Copy the generated key.
@@ -93,7 +100,8 @@ Recommended security hardening:
 1. In the key settings, set **Application restrictions**:
   - For local/dev scripts, use **IP addresses** and whitelist your server IP(s), or
   - Use **None** only temporarily during setup/testing.
-2. Set **API restrictions** to only **Distance Matrix API**.
+2. Set **API restrictions** to **Distance Matrix API** (plus **Directions API** if
+   you'll also run `scripts/visualize_routes.py`).
 3. Save changes.
 
 Then configure this project:
@@ -126,6 +134,7 @@ python run_historical.py                          # optimized GA, OSRM routing
 python run_historical.py --ga baseline             # original GA instead
 python run_historical.py --no-osrm                 # haversine, no network needed
 python run_historical.py --population 200 --generations 500
+python run_historical.py --seed 42                 # reproducible run (see below)
 ```
 
 Writes `results/historical/ga_results.json`, `comparison.json` (GA vs baseline),
@@ -138,11 +147,50 @@ python run_live.py                                 # optimized GA, live traffic
 python run_live.py --ga baseline
 python run_live.py --no-live-traffic                # static Google Maps, no traffic
 python run_live.py --traffic-model pessimistic
+python run_live.py --seed 42                        # reproducible run (see below)
 ```
 
 Writes to `results/live/` in the same shape as `run_historical.py`. Every route
 matrix is built with `departure_time=now`, so re-running later in the day can
 produce a different optimal route as traffic changes - that's the point.
+
+### Why `--seed` matters
+
+A genetic algorithm runs on randomness by design: which routes seed the starting
+population, which two parent routes get crossed and at what point, which stops get
+shuffled by mutation, which individuals win a tournament, and (in the optimized GA)
+which individuals get replaced when the search stagnates. That randomness is the
+whole point - it's how the GA explores many different stop orders and vehicle
+splits instead of settling on the first decent-looking route it finds.
+
+The catch: without a seed, that randomness comes from the OS's entropy source, so
+it's different on every run - even with the exact same customers, coordinates, and
+distance matrix. Two back-to-back runs of `python run_historical.py` will usually
+land on two different "best" routes: same stops, but a different visiting order
+and/or a different split between vehicle 1 and vehicle 2, so a slightly different
+total distance/cost/makespan too. Neither run is wrong - a GA only guarantees a
+*good* solution, not *the* optimal one, and which good solution it lands on depends
+on the random path it took to get there.
+
+That's fine when you just want a good route for today. It becomes a problem the
+moment you need to reproduce a specific result:
+
+- **The map.** `scripts/visualize_routes.py` draws whatever `stops` sequence
+  happens to be in `ga_results.json` right now. Regenerate that file without a seed
+  and you'll likely get a *different* route than the one behind your last
+  `comparison_report.txt` - the map and the report quietly fall out of sync.
+- **Debugging.** If a route looks worse after you change a matrix, a GA parameter,
+  or fix a bug, an unseeded run can't tell you whether your change caused it or the
+  GA just got unlucky this time. A seeded run removes that doubt: same seed, same
+  inputs, same route, every time.
+- **Sharing a result.** `--seed 42` (with the same data and parameters) is the only
+  way to say "run this and you'll get exactly the route I got" - the same idea as
+  sharing a save-game seed in a game with procedurally generated levels.
+
+Passing `--seed <int>` fixes Python's and NumPy's random number generators to a
+known starting point before the GA runs, so "random" becomes "the same sequence of
+choices, every time." Leave it unset when you're happy letting the GA explore
+freely; set it whenever today's run needs to look the same next week.
 
 ### 3. Evaluate historical vs live results
 
@@ -155,7 +203,9 @@ python run_live.py --population 200 --generations 500 --output-dir results/live_
 
 Each folder will contain:
 
-- `ga_results.json` - core GA output (distance, total time, makespan, total cost)
+- `ga_results.json` - core GA output (distance, total time, makespan, total cost,
+  and a `stops` list per vehicle - depot-to-depot facility name/lat/lon in visit
+  order, as chosen by the GA)
 - `comparison.json` - GA vs historical baseline percentage reductions
 - `comparison_report.txt` - human-readable summary report
 
@@ -194,6 +244,37 @@ Interpretation tips:
 - If live traffic is heavier, `total_time_hours` and `makespan_hours` in live mode usually increase.
 - If live mode reroutes around congestion, `total_distance_km` can increase while time decreases (detour effect).
 - Use `comparison_report.txt` in each folder to see GA improvements against historical baseline, then compare those improvement rates between historical and live runs.
+
+### 4. Visualize routes on a map
+
+Both routers only ever compute a distance/duration *matrix* for the GA - neither
+returns the actual road path, so drawing a route requires a separate geometry
+fetch. `scripts/visualize_routes.py` does that and renders a single OSM map with
+three toggleable layers: the historical baseline (depot &lt;-&gt; each destination,
+since those trips are single-destination, not multi-stop), the OSRM-GA route, and
+the Google-GA route.
+
+```bash
+python run_historical.py --seed 42 --output-dir results/historical_eval_v3
+python run_live.py --seed 42 --output-dir results/live_eval_v3
+python scripts/visualize_routes.py \
+  --historical-dir results/historical_eval_v3 \
+  --live-dir results/live_eval_v3 \
+  --output results/route_comparison_map.html
+```
+
+Then open `results/route_comparison_map.html` in a browser. Notes:
+
+- Both `ga_results.json` files must have been generated after the `stops` field
+  was added to `pipeline.py` - re-run the pipeline if you see a `KeyError`/`stops`
+  error.
+- Road geometry is fetched via OSRM's public `/route` service for the baseline and
+  OSRM-GA layers, and Google's Directions API for the Google-GA layer (falls back
+  to OSRM geometry if `GOOGLE_MAPS_API_KEY` isn't set or Directions API isn't
+  enabled on the key - see the API tutorial above).
+- Geometry is cached in `results/route_geometry_cache.db` (configurable via
+  `--geometry-cache`), so re-running the script after the first time is fast and
+  doesn't re-hit either API.
 
 ## Two GA versions
 

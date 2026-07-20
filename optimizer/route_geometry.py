@@ -193,7 +193,11 @@ class RouteGeometryFetcher:
     def fetch_google(self, stops: List[Point]) -> List[Point]:
         """Road-snapped, traffic-informed geometry for an ordered list of stops via
         Google's Directions API. Chunks into <=25-waypoint requests (Google's cap)
-        and concatenates leg geometries, so continuity is preserved across chunks."""
+        and concatenates leg geometries, so continuity is preserved across chunks.
+        If a chunk's Directions request fails (e.g. the API key doesn't have
+        Directions enabled, only Distance Matrix), that chunk falls back to OSRM's
+        /route geometry rather than a straight line - still road-snapped, just not
+        Google's live-traffic-aware path."""
         if len(stops) < 2:
             return list(stops)
         if not self.google_api_key:
@@ -239,7 +243,7 @@ class RouteGeometryFetcher:
 
                 if response.status_code != 200:
                     logger.error(f"Google Directions HTTP error: {response.status_code}")
-                    return list(stops)
+                    return self.fetch_osrm(stops)
 
                 data = response.json()
                 status = data.get('status')
@@ -261,7 +265,7 @@ class RouteGeometryFetcher:
                     continue
 
                 logger.error(f"Google Directions error: {status} - {data.get('error_message', '')}")
-                return list(stops)
+                return self.fetch_osrm(stops)
 
             except requests.exceptions.RequestException as e:
                 logger.error(f"Google Directions request failed: {e}")
@@ -269,6 +273,6 @@ class RouteGeometryFetcher:
                     wait = self.BACKOFF_INTERVALS[min(attempt, len(self.BACKOFF_INTERVALS) - 1)]
                     time.sleep(wait)
                 else:
-                    return list(stops)
+                    return self.fetch_osrm(stops)
 
-        return list(stops)
+        return self.fetch_osrm(stops)
